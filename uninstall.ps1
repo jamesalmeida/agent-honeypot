@@ -50,7 +50,9 @@ foreach ($target in $targets) {
     # profile); skip those instead of aborting the whole loop.
     if (-not (Test-Path -LiteralPath $target -ErrorAction SilentlyContinue)) { continue }
     $item = Get-Item -LiteralPath $target -Force
-    if ($item.LinkType) {
+    if ($item.PSIsContainer -and -not $item.LinkType) {
+        Write-Host "~ kept unrelated directory: $target"
+    } elseif ($item.LinkType) {
         Remove-Item -LiteralPath $target -Force
         Write-Host "~ removed link: $target"
     } elseif ((Test-Path -LiteralPath $flag) -and (Test-SameContent $target $flag)) {
@@ -63,9 +65,12 @@ foreach ($target in $targets) {
 
 if ($Purge) {
     foreach ($p in @($flag, $guest)) {
-        if (Test-Path -LiteralPath $p) {
-            Remove-Item -LiteralPath $p -Force
-            Write-Host "~ purged: $p"
+        if (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue) {
+            $item = Get-Item -LiteralPath $p -Force
+            if (-not $item.PSIsContainer) {
+                Remove-Item -LiteralPath $p -Force
+                Write-Host "~ purged: $p"
+            }
         }
     }
 } else {

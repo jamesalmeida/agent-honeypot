@@ -42,6 +42,22 @@ function Test-SameContent {
     }
 }
 
+function Test-IsReparseOrDirectory {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+    $item = Get-Item -LiteralPath $Path -Force
+    return [bool]($item.LinkType -or $item.PSIsContainer -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint))
+}
+
+if (Test-IsReparseOrDirectory $flag) {
+    throw "Refusing to operate on symlink, reparse point, or directory at: $flag"
+}
+if (Test-IsReparseOrDirectory $guest) {
+    throw "Refusing to operate on symlink, reparse point, or directory at: $guest"
+}
+
 # --- flag ---------------------------------------------------------------
 if ((Test-Path -LiteralPath $flag) -and -not $Force) {
     Write-Host "~ flag already exists, leaving it alone (use -Force to replace): $flag"
@@ -58,24 +74,17 @@ if (Test-Path -LiteralPath $guest) {
     Write-Host "~ created guestbook: $guest"
 }
 
-# Let any local user append. The guestbook is self-reported, not evidence.
-try {
-    $sid = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList ([System.Security.Principal.WellKnownSidType]::WorldSid), $null
-    $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList $sid, 'Modify', 'Allow'
-    $acl = Get-Acl -LiteralPath $guest
-    $acl.SetAccessRule($rule)
-    Set-Acl -LiteralPath $guest -AclObject $acl
-} catch {
-    Write-Warning "could not widen guestbook permissions: $_"
-}
-
 # Make the flag readable so a visitor running as another local user can read it.
+# The guestbook keeps default user-profile permissions (owner-writable) to prevent
+# local disk-exhaustion DoS, tampering, or deletion by other accounts.
 try {
-    $sid = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList ([System.Security.Principal.WellKnownSidType]::WorldSid), $null
-    $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList $sid, 'Read', 'Allow'
-    $acl = Get-Acl -LiteralPath $flag
-    $acl.SetAccessRule($rule)
-    Set-Acl -LiteralPath $flag -AclObject $acl
+    if (-not (Test-IsReparseOrDirectory $flag)) {
+        $sid = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList ([System.Security.Principal.WellKnownSidType]::WorldSid), $null
+        $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList $sid, 'Read', 'Allow'
+        $acl = Get-Acl -LiteralPath $flag
+        $acl.SetAccessRule($rule)
+        Set-Acl -LiteralPath $flag -AclObject $acl
+    }
 } catch {
     Write-Warning "could not widen flag permissions: $_"
 }
@@ -104,6 +113,10 @@ foreach ($target in $targets) {
 
     if (Test-Path -LiteralPath $target -ErrorAction SilentlyContinue) {
         $item = Get-Item -LiteralPath $target -Force
+        if ($item.PSIsContainer -and -not $item.LinkType) {
+            Write-Host "~ skipped (target is a directory): $target"
+            continue
+        }
         if ($item.LinkType) {
             Remove-Item -LiteralPath $target -Force
         } elseif ($Force -or (Test-SameContent $target $flag)) {

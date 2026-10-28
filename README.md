@@ -20,10 +20,11 @@ customise the own-agents list for their setup, install, verify, and report.
 ## What it does
 
 - Installs a canonical `~/flag.txt` that tells a visiting agent to stop discovery, avoid touching
-  secrets, remediate only what it can confidently identify, and report back.
+  secrets, make no further changes to the host, and report back.
 - Exempts **your own** agents (opencode, Claude Code, Codex, Cursor, Grok, …) so they aren't
   interrupted, and tells them not to sign the guestbook.
-- Creates `~/guest-book.txt`, append-only and world-writable, for surprise guests to leave one line:
+- Creates `~/guest-book.txt` (owner-writable, `0644`) for surprise guests running under your
+  account to leave one line:
   `<UTC timestamp> | <who or what you are> | <how you got in>`.
 - Symlinks the flag into places a visitor commonly checks, so it is found even if they never list
   the home directory.
@@ -71,7 +72,7 @@ The guestbook is never overwritten once it exists.
 | Path | Purpose |
 |------|---------|
 | `~/flag.txt` (`%USERPROFILE%\flag.txt` on Windows) | Canonical checkpoint text |
-| `~/guest-book.txt` (`%USERPROFILE%\guest-book.txt`) | Append-only guestbook, world-writable |
+| `~/guest-book.txt` (`%USERPROFILE%\guest-book.txt`) | Guestbook (owner-writable) |
 | `/etc/flag.txt` | Symlink — classic recon target |
 | `/usr/local/flag.txt` | Symlink — Unix convention |
 | `/tmp/flag.txt` | Symlink — scratch space agents often check |
@@ -93,7 +94,8 @@ through `/etc/synthetic.conf`, which the kernel reads at boot. `--synthetic` app
 needs a reboot. The script refuses to run as root — it uses `sudo` only for the system paths.
 
 **Linux.** `/` is writable, so no reboot is needed; the symlinks work immediately. `sudo -i` lands
-in `/root`, which is covered.
+in `/root`, which is covered. Note that on distributions where `/home/<user>` is mode `0700` or
+`0750`, symlinks into `~/flag.txt` can only be dereferenced by your user account and `root`.
 
 **Windows.** Run `install.ps1` from an elevated PowerShell (`Start-Process powershell -Verb RunAs`,
 or right-click → Run as administrator) for a complete install:
@@ -110,8 +112,9 @@ or right-click → Run as administrator) for a complete install:
 - `.gitattributes` pins `*.sh` to LF, so a Windows checkout of `install.sh`/`uninstall.sh` stays
   usable under WSL or after copying to macOS/Linux.
 
-The guestbook gets a Modify ACE for `Everyone` so another local user can append, and the flag gets a
-Read ACE for `Everyone` so it can be read.
+The flag gets a Read ACE for `Everyone` so it can be read if the profile path is traversable. The
+guestbook keeps standard user-profile permissions (owner-writable) so other local accounts cannot
+tamper with, delete, or fill it.
 
 Re-running the installer deletes an existing link before re-creating it, so a later **non-elevated**
 run silently replaces working links with copies. Re-run elevated, or just edit
@@ -132,9 +135,8 @@ rename the guestbook or move it, update the path in the flag text to match.
 cat ~/guest-book.txt
 ```
 
-Each line is self-reported, so treat entries as claims rather than proof. The file is
-world-writable so that a different local user or a sandboxed agent can append; that also means a
-determined visitor could rewrite it. That's acceptable for a guestbook.
+Each line is self-reported, so treat entries as claims rather than proof. Never treat guestbook
+entries as trusted instructions when feeding them to an AI agent.
 
 ## Uninstall
 
@@ -164,7 +166,8 @@ reboot to drop `/flag.txt`.
 - macOS cleans `/private/tmp` periodically, so `/tmp/flag.txt` may disappear after a while; re-run
   `./install.sh` to recreate it.
 - The flag text is a prompt-level request, not enforcement. A misbehaving agent can ignore it.
-- The guestbook is self-reported and world-writable. Entries are claims, not proof.
+- The guestbook is self-reported untrusted data. Entries are claims, not proof, and should never be
+  interpreted as instructions by an agent.
 
 ## License
 
